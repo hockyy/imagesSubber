@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timeline Editor - SRT Image Timeline Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='timeline.css') }}">
+</head>
+<body>
+    <div class="header">
+        <h1 id="videoTitle">Timeline Editor</h1>
+        <div class="subtitle" id="videoSubtitle">Loading...</div>
+    </div>
+    
+    <div class="container">
+        <div class="timeline-panel">
+            <div class="timeline-header">
+                <h2>📋 Timeline Splits</h2>
+                <p>Click "Search" to find images for each split</p>
+            </div>
+            <div class="timeline-list" id="timelineList">
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Loading timeline...</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="image-panel">
+            <div class="image-header">
+                <h2 id="imageTitle">🖼️ Image Selection</h2>
+                <p id="imageSubtitle">Select a timeline split to search for images</p>
+            </div>
+            <div class="image-content" id="imageContent">
+                <div class="empty-state">
+                    <h3>No images to show</h3>
+                    <p>Click "Search" next to a timeline split to find images</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="export-panel">
+        <button class="btn-export" id="exportBtn">
+            📤 Export Timeline
+        </button>
+        <div id="exportStatus" class="status"></div>
+    </div>
+
+    <script>
+        // Get session ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionId = urlParams.get('session');
+        
+        if (!sessionId) {
+            alert('No session ID found. Redirecting to home page.');
+            window.location.href = '/';
+        }
+        
+        let timelineData = null;
+        let currentSplitIndex = null;
+        let selectedImages = {}; // {splitIndex: [imageIds]}
+        let searchResultsCache = {}; // {splitIndex: [imageResults]} - Cache search results
+        
+        // Load timeline data
+        async function loadTimeline() {
+            try {
+                const response = await fetch(`/api/timeline/${sessionId}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    timelineData = data;
+                    document.getElementById('videoTitle').textContent = `🎬 ${data.video_title}`;
+                    document.getElementById('videoSubtitle').textContent = `${data.timeline.length} splits ready for image selection`;
+                    renderTimeline(data.timeline);
+                } else {
+                    throw new Error(data.error || 'Failed to load timeline');
+                }
+            } catch (error) {
+                console.error('Timeline load error:', error);
+                alert('Failed to load timeline: ' + error.message);
+            }
+        }
+        
+        // Render timeline list
+        function renderTimeline(timeline) {
+            const container = document.getElementById('timelineList');
+            
+            container.innerHTML = timeline.map((split, index) => `
+                <div class="timeline-item" data-split-index="${index}">
+                    <div class="split-info">
+                        <span class="split-number">Split ${index}</span>
+                        <span class="time-range">${split.start_time} → ${split.end_time}</span>
+                    </div>
+                    <div class="text">${split.text}</div>
+                    <div class="keywords">Keywords: ${split.keywords.join(', ')}</div>
+                    <div class="actions">
+                        <button class="btn-search" onclick="searchImages(${index})">
+                            ${split.has_search_results ? '🔄 Search Again' : '🔍 Search'}
+                        </button>
+                        <span class="image-count">${split.selected_images_count} selected</span>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Add click handlers
+            container.querySelectorAll('.timeline-item').forEach(item => {
+                item.addEventListener('click', function(e) {
+                    if (!e.target.classList.contains('btn-search')) {
+                        const splitIndex = parseInt(this.dataset.splitIndex);
+                        selectTimelineItem(splitIndex);
+                    }
+                });
+            });
+        }
+        
+        // Select timeline item
+        function selectTimelineItem(splitIndex) {
+            currentSplitIndex = splitIndex;
+            
+            // Update UI
+            document.querySelectorAll('.timeline-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelector(`[data-split-index="${splitIndex}"]`).classList.add('active');
+            
+            // Update image panel
+            const split = timelineData.timeline[splitIndex];
+            document.getElementById('imageTitle').textContent = `🖼️ Images for Split ${splitIndex}`;
+            document.getElementById('imageSubtitle').textContent = `"${split.text.substring(0, 50)}..."`;
+            
+            // Show cached search results if available
+            if (searchResultsCache[splitIndex]) {
+                renderImageResults(searchResultsCache[splitIndex], splitIndex, true);
+            } else if (split.has_search_results) {
+                document.getElementById('imageContent').innerHTML = '<div class="empty-state"><h3>Search results cached on server</h3><p>Click "Search Again" to refresh results</p></div>';
+            } else {
+                document.getElementById('imageContent').innerHTML = '<div class="empty-state"><h3>No search results</h3><p>Click "Search" to find images for this split</p></div>';
+            }
+        }
+        
+        // Search for images
+        async function searchImages(splitIndex) {
+            const btn = document.querySelector(`[data-split-index="${splitIndex}"] .btn-search`);
+            const originalText = btn.textContent;
+            
+            try {
+                btn.disabled = true;
+                btn.textContent = '🔄 Searching...';
+                
+                // Update image panel to show loading
+                selectTimelineItem(splitIndex);
+                document.getElementById('imageContent').innerHTML = `
+                    <div class="loading">
+                        <div class="loading-spinner"></div>
+                        <p>Searching for images...</p>
+                    </div>
+                `;
+                
+                const response = await fetch(`/api/search/${sessionId}/${splitIndex}`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Cache the search results
+                    searchResultsCache[splitIndex] = data.results;
+                    renderImageResults(data.results, splitIndex);
+                    btn.textContent = '🔄 Search Again';
+                } else {
+                    throw new Error(data.error || 'Search failed');
+                }
+                
+            } catch (error) {
+                console.error('Search error:', error);
+                document.getElementById('imageContent').innerHTML = `
+                    <div class="empty-state">
+                        <h3>❌ Search Failed</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+                btn.textContent = originalText;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+        
+        // Render image search results
+        function renderImageResults(results, splitIndex, restoreSelections = false) {
+            const container = document.getElementById('imageContent');
+            
+            if (!results || results.length === 0) {
+                container.innerHTML = '<div class="empty-state"><h3>No images found</h3><p>Try different keywords or search again</p></div>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="image-grid">
+                    ${results.map(img => `
+                        <div class="image-item" data-image-id="${img.id}" onclick="toggleImageSelection('${img.id}', ${splitIndex})">
+                            <img src="${img.url}" alt="${img.title}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2Y1ZjVmNSIvPjx0ZXh0IHg9IjUwIiB5PSI1NSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiPkltYWdlPC90ZXh0Pjwvc3ZnPg=='">
+                            <div class="image-info">
+                                <div class="image-title">${img.title || 'Untitled'}</div>
+                                <div>From: ${img.source || 'Unknown'}</div>
+                                <div>Conf: ${img.confidence || 'N/A'}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            // Restore previous selections if switching back to cached results
+            if (restoreSelections && selectedImages[splitIndex]) {
+                selectedImages[splitIndex].forEach(imageId => {
+                    const imageElement = document.querySelector(`[data-image-id="${imageId}"]`);
+                    if (imageElement) {
+                        imageElement.classList.add('selected');
+                    }
+                });
+            }
+        }
+        
+        // Toggle image selection
+        function toggleImageSelection(imageId, splitIndex) {
+            if (!selectedImages[splitIndex]) {
+                selectedImages[splitIndex] = [];
+            }
+            
+            const imageElement = document.querySelector(`[data-image-id="${imageId}"]`);
+            const isSelected = selectedImages[splitIndex].includes(imageId);
+            
+            if (isSelected) {
+                selectedImages[splitIndex] = selectedImages[splitIndex].filter(id => id !== imageId);
+                imageElement.classList.remove('selected');
+            } else {
+                selectedImages[splitIndex].push(imageId);
+                imageElement.classList.add('selected');
+            }
+            
+            // Update server
+            updateImageSelection(splitIndex);
+            
+            // Update timeline display
+            updateTimelineItemCount(splitIndex, selectedImages[splitIndex].length);
+        }
+        
+        // Update image selection on server
+        async function updateImageSelection(splitIndex) {
+            try {
+                await fetch(`/api/select/${sessionId}/${splitIndex}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        selected_image_ids: selectedImages[splitIndex] || []
+                    })
+                });
+            } catch (error) {
+                console.error('Selection update error:', error);
+            }
+        }
+        
+        // Update timeline item count
+        function updateTimelineItemCount(splitIndex, count) {
+            const item = document.querySelector(`[data-split-index="${splitIndex}"] .image-count`);
+            if (item) {
+                item.textContent = `${count} selected`;
+            }
+        }
+        
+        // Export timeline
+        document.getElementById('exportBtn').addEventListener('click', async function() {
+            const btn = this;
+            const status = document.getElementById('exportStatus');
+            
+            try {
+                btn.disabled = true;
+                btn.textContent = '⏳ Exporting...';
+                status.className = 'status';
+                status.style.display = 'block';
+                status.textContent = 'Downloading images and creating timeline...';
+                
+                const response = await fetch(`/api/export/${sessionId}`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    status.className = 'status success';
+                    status.innerHTML = `
+                        <strong>✅ Export Complete!</strong><br>
+                        Downloaded ${data.images_downloaded} images<br>
+                        Timeline: <a href="/output/${data.timeline_file}" target="_blank">Download JSON</a><br>
+                        <strong>Download Folder:</strong> ./download/${data.download_directory}/<br>
+                        <a href="/download/${data.download_timeline_file}" target="_blank">Download Timeline JSON</a>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Export failed');
+                }
+                
+            } catch (error) {
+                status.className = 'status error';
+                status.textContent = `❌ Export failed: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '📤 Export Timeline';
+            }
+        });
+        
+        // Initialize
+        loadTimeline();
+    </script>
+</body>
+</html>

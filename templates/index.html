@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRT Image Timeline Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 SRT Image Timeline</h1>
+            <p>Generate image timelines from subtitle files using Brave Search API</p>
+        </div>
+        
+        <div class="form-container">
+            <form id="uploadForm">
+                <div class="form-group">
+                    <label for="srt_file">📁 SRT Subtitle File</label>
+                    <input type="file" id="srt_file" name="srt_file" accept=".srt" required class="file-input">
+                    <div class="help-text">Upload your .srt subtitle file</div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="video_title">🎥 Video Title</label>
+                    <input type="text" id="video_title" name="video_title" placeholder="My Amazing Video" required>
+                    <div class="help-text">This will be used for organizing downloaded images</div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="brave_api_key">🔑 Brave Search API Key</label>
+                    <input type="password" id="brave_api_key" name="brave_api_key" placeholder="BSA..." required>
+                    <div class="help-text">Your Brave Search API subscription token</div>
+                    
+                    <div class="api-help">
+                        <h4>Need an API Key?</h4>
+                        <p>1. Visit <a href="https://api-dashboard.search.brave.com/" target="_blank">Brave Search API Dashboard</a></p>
+                        <p>2. Sign up for free account</p>
+                        <p>3. Subscribe to Image Search API (free tier available)</p>
+                        <p>4. Get your API key from the dashboard</p>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn" id="submitBtn">
+                    🚀 Process SRT File
+                </button>
+                
+                <div id="status" class="status"></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Load saved values from localStorage
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedApiKey = localStorage.getItem('brave_api_key');
+            const savedVideoTitle = localStorage.getItem('video_title');
+            
+            if (savedApiKey) {
+                document.getElementById('brave_api_key').value = savedApiKey;
+            }
+            
+            if (savedVideoTitle) {
+                document.getElementById('video_title').value = savedVideoTitle;
+            }
+        });
+        
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const submitBtn = document.getElementById('submitBtn');
+            const status = document.getElementById('status');
+            
+            // Save values to localStorage
+            const apiKey = document.getElementById('brave_api_key').value;
+            const videoTitle = document.getElementById('video_title').value;
+            
+            if (apiKey) {
+                localStorage.setItem('brave_api_key', apiKey);
+            }
+            if (videoTitle) {
+                localStorage.setItem('video_title', videoTitle);
+            }
+            
+            // Show loading state
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="loading-spinner"></span>Processing...';
+            status.className = 'status loading';
+            status.style.display = 'block';
+            status.textContent = 'Uploading and processing SRT file...';
+            
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    status.className = 'status success';
+                    status.innerHTML = `
+                        <strong>✅ Success!</strong><br>
+                        ${data.message}<br>
+                        <em>Redirecting to timeline editor...</em>
+                    `;
+                    
+                    // Redirect to timeline page
+                    setTimeout(() => {
+                        window.location.href = `/timeline?session=${data.session_id}`;
+                    }, 2000);
+                } else {
+                    throw new Error(data.error || 'Upload failed');
+                }
+                
+            } catch (error) {
+                status.className = 'status error';
+                status.innerHTML = `<strong>❌ Error:</strong> ${error.message}`;
+                
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '🚀 Process SRT File';
+            }
+        });
+        
+        // File input styling
+        document.getElementById('srt_file').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name;
+            if (fileName) {
+                const label = this.previousElementSibling;
+                label.textContent = `📁 Selected: ${fileName}`;
+            }
+        });
+    </script>
+</body>
+</html>
