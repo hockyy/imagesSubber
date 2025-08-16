@@ -5,13 +5,13 @@ Clean timeline generator using Brave Search API and smart text splitting.
 from typing import List, Dict, Any
 from pathlib import Path
 
-from srt_parser import SRTParser
-from text_splitter import SmartTextSplitter
-from brave_image_client import BraveImageClient
-from image_downloader import ImageDownloader
-from search_query_generator import SearchQueryGenerator
-from statistics_tracker import StatisticsTracker
-from timeline_operations import TimelineOperations
+from core.srt_parser import SRTParser
+from core.text_splitter import SmartTextSplitter
+from core.brave_image_client import BraveImageClient
+from core.image_downloader import ImageDownloader
+from core.search_query_generator import SearchQueryGenerator
+from utils.statistics_tracker import StatisticsTracker
+from utils.timeline_operations import TimelineOperations
 
 class TimelineGenerator:
     """Generates image timelines from SRT files using smart text splitting."""

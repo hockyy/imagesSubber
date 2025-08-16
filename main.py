@@ -11,7 +11,7 @@ import sys
 import os
 from pathlib import Path
 
-from timeline_generator import TimelineGenerator
+from core.timeline_generator import TimelineGenerator
 
 def main():
     """Main application entry point."""

@@ -7,9 +7,9 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Tuple, Any
 
-from srt_parser import SRTParser
-from text_splitter import SmartTextSplitter
-from brave_image_client import BraveImageClient
+from core.srt_parser import SRTParser
+from core.text_splitter import SmartTextSplitter
+from core.brave_image_client import BraveImageClient
 
 
 class TimelineSession:

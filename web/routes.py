@@ -9,8 +9,8 @@ import shutil
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory
 
-from web_session_manager import WebSessionManager
-from fcpxml_generator import FCPXMLGenerator
+from web.session_manager import WebSessionManager
+from web.fcpxml_generator import FCPXMLGenerator
 
 
 class WebRoutes:

@@ -9,8 +9,8 @@ using Brave Search API with image selection and download functionality.
 from flask import Flask
 import os
 
-from web_session_manager import WebSessionManager
-from web_routes import WebRoutes
+from web.session_manager import WebSessionManager
+from web.routes import WebRoutes
 
 app = Flask(__name__)
 app.secret_key = 'srt-timeline-generator-2024'

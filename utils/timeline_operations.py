@@ -7,8 +7,8 @@ import json
 from typing import List, Dict, Any
 from pathlib import Path
 
-from text_splitter import SmartTextSplitter
-from statistics_tracker import StatisticsTracker
+from core.text_splitter import SmartTextSplitter
+from utils.statistics_tracker import StatisticsTracker
 
 
 class TimelineOperations:

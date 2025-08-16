@@ -6,9 +6,9 @@ Handles downloading images for text splits using Brave Search API.
 from typing import List, Dict, Any
 from pathlib import Path
 
-from text_splitter import TextSplit
-from brave_image_client import BraveImageClient
-from statistics_tracker import StatisticsTracker
+from core.text_splitter import TextSplit
+from core.brave_image_client import BraveImageClient
+from utils.statistics_tracker import StatisticsTracker
 
 
 class ImageDownloader:

@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from time_utils import time_to_seconds, seconds_to_frames
+from utils.time_utils import time_to_seconds, seconds_to_frames
 
 
 class TimelineClip:
