@@ -438,13 +438,14 @@
             const keyword = tag.textContent.replace('×', '').trim();
             selectedTags.delete(keyword);
             
-            // Find the input to focus after removal
-            const input = tag.parentElement.querySelector('.keyword-input');
+            // Find the timeline item and input before removing the tag
+            const timelineItem = tag.closest('.timeline-item');
+            const splitIndex = parseInt(timelineItem.dataset.splitIndex);
+            const input = timelineItem.querySelector('.keyword-input');
             
             tag.remove();
             
             // Update the timeline data
-            const splitIndex = parseInt(tag.closest('.timeline-item').dataset.splitIndex);
             updateKeywordsInData(splitIndex);
             
             // Refocus the input
@@ -483,25 +484,6 @@
                     }
                 }
                 // If input has text or cursor not at start, allow normal backspace
-            } else if (event.key === 'ArrowLeft' && input.selectionStart === 0 && value === '') {
-                // Navigate to previous tag
-                const allTags = input.parentElement.querySelectorAll('.keyword-tag');
-                if (allTags.length > 0) {
-                    const lastTag = allTags[allTags.length - 1];
-                    selectTag(lastTag);
-                    event.preventDefault();
-                }
-            } else if (event.key === 'ArrowRight') {
-                // Clear any selected tags when moving right
-                selectedTags.forEach(keyword => {
-                    const tagElements = input.parentElement.querySelectorAll('.keyword-tag');
-                    tagElements.forEach(tag => {
-                        if (tag.textContent.replace('×', '').trim() === keyword) {
-                            tag.classList.remove('selected');
-                        }
-                    });
-                });
-                selectedTags.clear();
             } else if (event.key === 'Delete') {
                 // Delete selected tags
                 const selectedTagElements = input.parentElement.querySelectorAll('.keyword-tag.selected');
