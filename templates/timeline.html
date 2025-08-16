@@ -61,6 +61,7 @@
         let currentSplitIndex = null;
         let selectedImages = {}; // {splitIndex: [imageIds]}
         let searchResultsCache = {}; // {splitIndex: [imageResults]} - Cache search results
+        let customKeywords = {}; // {splitIndex: [custom_keywords]} - User-modified keywords for search
         
         // Load timeline data
         async function loadTimeline() {
@@ -93,7 +94,26 @@
                         <span class="time-range">${split.start_time} → ${split.end_time}</span>
                     </div>
                     <div class="text">${split.text}</div>
-                    <div class="keywords">Keywords: ${split.keywords.join(', ')}</div>
+                    <div class="keywords" onclick="event.stopPropagation(); editKeywords(${index})" id="keywords-display-${index}">
+                        Keywords: ${split.keywords.join(', ')} <span style="color: #999; font-size: 0.8rem;">(click to edit)</span>
+                    </div>
+                    <div class="keyword-editor">
+                        <div class="keyword-tags" onclick="event.stopPropagation(); focusKeywordInput(${index})" id="keyword-tags-${index}">
+                            ${split.keywords.map(keyword => `
+                                <span class="keyword-tag" onclick="event.stopPropagation(); selectTag(this)">
+                                    ${keyword}
+                                    <span class="tag-remove" onclick="event.stopPropagation(); removeTag(this)">×</span>
+                                </span>
+                            `).join('')}
+                            <input type="text" class="keyword-input" placeholder="Add keyword..." 
+                                   onkeydown="handleKeywordInput(event, ${index})" 
+                                   onclick="event.stopPropagation()"
+                                   onblur="setTimeout(() => finishKeywordEdit(${index}), 100)">
+                        </div>
+                        <div class="keyword-editor-help">
+                            Press Enter to add • Click tags to select • Backspace to remove selected • Click outside to finish
+                        </div>
+                    </div>
                     <div class="actions">
                         <button class="btn-search" onclick="searchImages(${index})">
                             ${split.has_search_results ? '🔄 Search Again' : '🔍 Search'}
@@ -106,7 +126,10 @@
             // Add click handlers
             container.querySelectorAll('.timeline-item').forEach(item => {
                 item.addEventListener('click', function(e) {
-                    if (!e.target.classList.contains('btn-search')) {
+                    // Don't select timeline item if clicking on keyword editor or search button
+                    if (!e.target.classList.contains('btn-search') && 
+                        !e.target.closest('.keyword-editor') && 
+                        !e.target.closest('.keywords')) {
                         const splitIndex = parseInt(this.dataset.splitIndex);
                         selectTimelineItem(splitIndex);
                     }
@@ -157,8 +180,17 @@
                     </div>
                 `;
                 
+                // Get current keywords (use custom keywords if available, otherwise original)
+                const currentKeywords = customKeywords[splitIndex] || timelineData.timeline[splitIndex].keywords;
+                
                 const response = await fetch(`/api/search/${sessionId}/${splitIndex}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        custom_keywords: currentKeywords
+                    })
                 });
                 
                 const data = await response.json();
@@ -307,6 +339,245 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = '📤 Export Timeline';
+            }
+        });
+        
+        // Keyword editing functions
+        let selectedTags = new Set();
+        
+        function editKeywords(splitIndex) {
+            // Exit any other editing mode
+            document.querySelectorAll('.timeline-item.editing').forEach(item => {
+                item.classList.remove('editing');
+            });
+            
+            const item = document.querySelector(`[data-split-index="${splitIndex}"]`);
+            item.classList.add('editing');
+            
+            // Initialize custom keywords with original keywords if not already set
+            if (!customKeywords[splitIndex]) {
+                customKeywords[splitIndex] = [...timelineData.timeline[splitIndex].keywords];
+                rebuildTagsForSplit(splitIndex);
+            }
+            
+            // Focus the input
+            setTimeout(() => {
+                const input = item.querySelector('.keyword-input');
+                if (input) {
+                    input.focus();
+                }
+            }, 100);
+        }
+        
+        function focusKeywordInput(splitIndex) {
+            const item = document.querySelector(`[data-split-index="${splitIndex}"]`);
+            const input = item.querySelector('.keyword-input');
+            if (input) {
+                input.focus();
+            }
+        }
+        
+        function selectTag(tagElement) {
+            tagElement.classList.toggle('selected');
+            const keyword = tagElement.textContent.replace('×', '').trim();
+            
+            if (tagElement.classList.contains('selected')) {
+                selectedTags.add(keyword);
+            } else {
+                selectedTags.delete(keyword);
+            }
+        }
+        
+        function removeTag(removeButton) {
+            const tag = removeButton.parentElement;
+            const keyword = tag.textContent.replace('×', '').trim();
+            selectedTags.delete(keyword);
+            
+            // Find the input to focus after removal
+            const input = tag.parentElement.querySelector('.keyword-input');
+            
+            tag.remove();
+            
+            // Update the timeline data
+            const splitIndex = parseInt(tag.closest('.timeline-item').dataset.splitIndex);
+            updateKeywordsInData(splitIndex);
+            
+            // Refocus the input
+            if (input) {
+                setTimeout(() => input.focus(), 10);
+            }
+        }
+        
+        function handleKeywordInput(event, splitIndex) {
+            const input = event.target;
+            const value = input.value.trim();
+            
+            if (event.key === 'Enter' && value) {
+                // Add new tag
+                addKeywordTag(input, value);
+                input.value = '';
+                updateKeywordsInData(splitIndex);
+                event.preventDefault();
+            } else if (event.key === 'Backspace') {
+                if (value === '' && input.selectionStart === 0) {
+                    // At beginning of empty input - handle tag deletion
+                    const selectedTagElements = input.parentElement.querySelectorAll('.keyword-tag.selected');
+                    if (selectedTagElements.length > 0) {
+                        selectedTagElements.forEach(tag => tag.remove());
+                        selectedTags.clear();
+                        updateKeywordsInData(splitIndex);
+                        event.preventDefault();
+                    } else {
+                        // Select the last tag for deletion
+                        const allTags = input.parentElement.querySelectorAll('.keyword-tag');
+                        if (allTags.length > 0) {
+                            const lastTag = allTags[allTags.length - 1];
+                            selectTag(lastTag);
+                            event.preventDefault();
+                        }
+                    }
+                }
+                // If input has text or cursor not at start, allow normal backspace
+            } else if (event.key === 'ArrowLeft' && input.selectionStart === 0 && value === '') {
+                // Navigate to previous tag
+                const allTags = input.parentElement.querySelectorAll('.keyword-tag');
+                if (allTags.length > 0) {
+                    const lastTag = allTags[allTags.length - 1];
+                    selectTag(lastTag);
+                    event.preventDefault();
+                }
+            } else if (event.key === 'ArrowRight') {
+                // Clear any selected tags when moving right
+                selectedTags.forEach(keyword => {
+                    const tagElements = input.parentElement.querySelectorAll('.keyword-tag');
+                    tagElements.forEach(tag => {
+                        if (tag.textContent.replace('×', '').trim() === keyword) {
+                            tag.classList.remove('selected');
+                        }
+                    });
+                });
+                selectedTags.clear();
+            } else if (event.key === 'Delete') {
+                // Delete selected tags
+                const selectedTagElements = input.parentElement.querySelectorAll('.keyword-tag.selected');
+                if (selectedTagElements.length > 0) {
+                    selectedTagElements.forEach(tag => tag.remove());
+                    selectedTags.clear();
+                    updateKeywordsInData(splitIndex);
+                    event.preventDefault();
+                }
+            } else if (event.key === 'Escape') {
+                finishKeywordEdit(splitIndex);
+            }
+        }
+        
+        function addKeywordTag(input, keyword) {
+            // Check if keyword already exists
+            const existingTags = input.parentElement.querySelectorAll('.keyword-tag');
+            for (let tag of existingTags) {
+                if (tag.textContent.replace('×', '').trim() === keyword) {
+                    return; // Don't add duplicates
+                }
+            }
+            
+            const tag = document.createElement('span');
+            tag.className = 'keyword-tag';
+            tag.innerHTML = `${keyword} <span class="tag-remove">×</span>`;
+            
+            // Add event listeners to prevent bubbling
+            tag.addEventListener('click', function(e) {
+                e.stopPropagation();
+                e.preventDefault();
+                selectTag(tag);
+            });
+            
+            const removeBtn = tag.querySelector('.tag-remove');
+            removeBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                e.preventDefault();
+                removeTag(this);
+            });
+            
+            // Prevent mousedown from causing blur
+            tag.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+            });
+            
+            input.parentElement.insertBefore(tag, input);
+        }
+        
+        function updateKeywordsInData(splitIndex) {
+            const item = document.querySelector(`[data-split-index="${splitIndex}"]`);
+            const tags = item.querySelectorAll('.keyword-tag');
+            const keywords = Array.from(tags).map(tag => tag.textContent.replace('×', '').trim());
+            
+            // Update custom keywords only (keep original timeline data intact)
+            customKeywords[splitIndex] = keywords;
+            
+            // Update the keywords display
+            const keywordsDisplay = item.querySelector('.keywords');
+            keywordsDisplay.innerHTML = `Keywords: ${keywords.join(', ')} <span style="color: #999; font-size: 0.8rem;">(click to edit)</span>`;
+        }
+        
+        function rebuildTagsForSplit(splitIndex) {
+            const tagsContainer = document.getElementById(`keyword-tags-${splitIndex}`);
+            const input = tagsContainer.querySelector('.keyword-input');
+            
+            // Clear existing tags but keep the input
+            tagsContainer.querySelectorAll('.keyword-tag').forEach(tag => tag.remove());
+            
+            // Rebuild tags from custom keywords
+            const keywords = customKeywords[splitIndex] || [];
+            keywords.forEach(keyword => {
+                const tag = document.createElement('span');
+                tag.className = 'keyword-tag';
+                tag.innerHTML = `${keyword} <span class="tag-remove">×</span>`;
+                
+                // Add event listeners to prevent bubbling
+                tag.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    selectTag(tag);
+                });
+                
+                const removeBtn = tag.querySelector('.tag-remove');
+                removeBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    removeTag(this);
+                });
+                
+                // Prevent mousedown from causing blur
+                tag.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                });
+                
+                tagsContainer.insertBefore(tag, input);
+            });
+        }
+        
+        function finishKeywordEdit(splitIndex) {
+            const item = document.querySelector(`[data-split-index="${splitIndex}"]`);
+            item.classList.remove('editing');
+            selectedTags.clear();
+            
+            // Clear any selected tags
+            item.querySelectorAll('.keyword-tag.selected').forEach(tag => {
+                tag.classList.remove('selected');
+            });
+        }
+        
+        // Close keyword editor when clicking outside (with delay to prevent conflicts)
+        document.addEventListener('click', function(event) {
+            if (!event.target.closest('.keyword-editor') && 
+                !event.target.closest('.keywords') &&
+                !event.target.classList.contains('keyword-input')) {
+                setTimeout(() => {
+                    document.querySelectorAll('.timeline-item.editing').forEach(item => {
+                        const splitIndex = parseInt(item.dataset.splitIndex);
+                        finishKeywordEdit(splitIndex);
+                    });
+                }, 50);
             }
         });
         

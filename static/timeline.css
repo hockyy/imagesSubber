@@ -279,3 +279,94 @@ body {
     margin-bottom: 10px;
     color: #333;
 }
+
+/* Tag Editor Styles */
+.keyword-editor {
+    margin: 8px 0;
+}
+
+.keyword-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+    min-height: 32px;
+    padding: 6px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    background: #f9f9f9;
+    cursor: text;
+}
+
+.keyword-tags:focus-within {
+    border-color: #2196f3;
+    background: white;
+}
+
+.keyword-tag {
+    display: inline-flex;
+    align-items: center;
+    background: #2196f3;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 16px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.keyword-tag:hover {
+    background: #1976d2;
+    transform: translateY(-1px);
+}
+
+.keyword-tag.selected {
+    background: #f44336;
+}
+
+.keyword-tag .tag-remove {
+    margin-left: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    opacity: 0.8;
+}
+
+.keyword-tag .tag-remove:hover {
+    opacity: 1;
+}
+
+.keyword-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    padding: 4px;
+    font-size: 0.85rem;
+    min-width: 60px;
+    flex: 1;
+}
+
+.keyword-input::placeholder {
+    color: #999;
+    font-style: italic;
+}
+
+.keyword-editor-help {
+    font-size: 0.75rem;
+    color: #666;
+    margin-top: 4px;
+}
+
+.timeline-item.editing {
+    background: #f0f8ff;
+    border-left: 4px solid #2196f3;
+}
+
+.timeline-item.editing .keywords {
+    display: none;
+}
+
+.timeline-item:not(.editing) .keyword-editor {
+    display: none;
+}

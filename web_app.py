@@ -181,13 +181,20 @@ def search_images(session_id, split_index):
     try:
         split = session.text_splits[split_index]
         
-        # Combine keywords into search query
-        if split.keywords:
-            combined_query = " ".join(split.keywords[:4])
+        # Get custom keywords from request if provided
+        data = request.get_json() if request.is_json else {}
+        custom_keywords = data.get('custom_keywords', [])
+        
+        # Use custom keywords if provided, otherwise use original split keywords
+        keywords_to_use = custom_keywords if custom_keywords else split.keywords
+        
+        # Combine keywords into search query (no limit)
+        if keywords_to_use:
+            combined_query = " ".join(keywords_to_use)
         else:
             combined_query = "abstract art"
         
-        print(f"Searching for split {split_index}: '{combined_query}'")
+        print(f"Searching for split {split_index}: '{combined_query}' (custom: {bool(custom_keywords)})")
         
         # Search for images
         results = session.brave_client.search_images(combined_query, count=12)
