@@ -2,6 +2,8 @@
 
 A clean, focused Python application that generates image timelines from SRT subtitle files using intelligent text splitting and [Brave Search API](https://api-dashboard.search.brave.com/app/documentation/image-search/get-started).
 
+Features both a **web interface** for interactive image selection and a **command-line tool** for automated processing.
+
 ## 🎯 What It Does
 
 1. **Parses SRT files** - Extracts subtitle text and timing
@@ -36,7 +38,7 @@ Splits needed: ceil(6 / 3) = 2 splits
 
 ### 2. Install Dependencies
 ```bash
-pip install requests nltk Flask
+pip install -r requirements.txt
 ```
 
 ### 3. Choose Your Interface
@@ -57,10 +59,11 @@ python main.py movie.srt "My Movie" --api-key YOUR_BRAVE_API_KEY
 ### Web Application (Recommended)
 1. Start the server: `python web_app.py`
 2. Open http://localhost:5000 in your browser
-3. Upload your SRT file and enter your API key (saved in localStorage)
-4. Click search buttons for each timeline split
-5. Select multiple images from search results (cached for switching)
-6. Export timeline with downloaded images to `./download/{movie_name}/`
+3. Upload your SRT file and enter video title + API key (saved in browser)
+4. Review the generated timeline splits
+5. Click search buttons for each split (or edit keywords first)
+6. Select multiple images from search results
+7. Export timeline - downloads images and creates JSON + FCPXML files in `./download/{video_title}/`
 
 ### Command Line Usage
 ```bash
@@ -123,39 +126,57 @@ The generated JSON timeline follows this structure:
 ]
 ```
 
-## 🖥️ GUI Features
+## 🌐 Web Interface Features
 
-The GUI version (`gui_timeline.py`) provides an interactive interface:
+The web application (`web_app.py`) provides an interactive browser-based interface:
 
-- **📁 File Loading**: Browse and load SRT files
-- **⚙️ Configuration**: Enter API key and video title
-- **📋 Timeline View**: Scrollable list of text splits with timing
-- **🔍 Image Search**: Search for images per timeline segment
-- **🖼️ Image Selection**: Multi-select images with thumbnails
-- **📤 Export**: Save timeline as JSON with selected images
+- **📁 File Upload**: Drag & drop SRT files
+- **⚙️ Configuration**: Enter API key and video title (saved in browser)
+- **📋 Timeline View**: Interactive timeline with text splits and timing
+- **🔍 Custom Search**: Edit keywords and search for images per segment
+- **🖼️ Image Selection**: Multi-select images with thumbnails and preview
+- **📤 Export**: Download timeline as JSON + FCPXML with selected images
+- **💾 Persistent State**: Selections saved during session
 
-### GUI Workflow:
-1. Load SRT file and enter configuration
-2. Review generated text splits in timeline
-3. Select a timeline item to search for images
-4. Choose multiple images from search results
-5. Repeat for all timeline segments
-6. Export final timeline to JSON
+### Web Workflow:
+1. Upload SRT file and enter video title + API key
+2. Review generated text splits in interactive timeline
+3. Click search buttons for each timeline segment (or edit keywords first)
+4. Select multiple images from search results
+5. Export timeline with downloaded images to `./download/{video_title}/`
 
 ## 🏗️ Project Structure
 
 ```
 subber/
-├── gui_timeline.py        # GUI application (recommended)
-├── main.py               # Command line application  
-├── srt_parser.py         # SRT file parsing
-├── text_splitter.py      # Smart text splitting logic (with NLTK)
-├── brave_image_client.py # Brave Search API client
-├── timeline_generator.py # Timeline generation (CLI version)
-├── requirements.txt      # Dependencies
-├── README.md            # This file
-└── images/              # Downloaded images (created automatically)
-    └── {video_title}/   # Organized by video
+├── main.py                    # Command line application entry point
+├── web_app.py                # Web application entry point (recommended)
+├── core/                     # Core processing modules
+│   ├── __init__.py
+│   ├── srt_parser.py         # SRT file parsing
+│   ├── text_splitter.py      # Smart text splitting logic (with NLTK)
+│   ├── brave_image_client.py # Brave Search API client
+│   ├── timeline_generator.py # Main timeline generation logic
+│   ├── image_downloader.py   # Image downloading and management
+│   └── search_query_generator.py # Search query optimization
+├── web/                      # Web application modules
+│   ├── __init__.py
+│   ├── session_manager.py    # User session management
+│   ├── routes.py            # Flask API routes
+│   └── fcpxml_generator.py  # Final Cut Pro XML export
+├── utils/                    # Utility modules
+│   ├── __init__.py
+│   ├── time_utils.py        # Time format conversions
+│   ├── statistics_tracker.py # Processing statistics
+│   └── timeline_operations.py # Timeline file operations
+├── templates/               # Web interface templates
+│   ├── index.html          # Upload page
+│   └── timeline.html       # Interactive timeline editor
+├── static/                 # CSS and static assets
+├── requirements.txt        # Python dependencies
+├── sample.srt             # Example SRT file
+└── download/              # Downloaded images and timelines
+    └── {video_title}/     # Organized by video
 ```
 
 ## 🔧 How It Works
@@ -186,22 +207,37 @@ subber/
 
 ## 📊 Features
 
+### Core Features
 - ✅ **Smart text splitting** based on duration and content
 - ✅ **High-quality images** from Brave Search API
 - ✅ **Organized file structure** by video title
 - ✅ **Rate limiting** to respect API limits
 - ✅ **Error handling** for robust operation
 - ✅ **Statistics tracking** for insights
-- ✅ **Preview mode** to review results
+
+### Web Interface
+- ✅ **Interactive timeline editor** with real-time preview
+- ✅ **Custom keyword editing** for better search results
+- ✅ **Multi-image selection** with thumbnail previews
+- ✅ **Session persistence** - selections saved during editing
+- ✅ **FCPXML export** for Final Cut Pro integration
+- ✅ **Responsive design** works on desktop and mobile
+
+### Command Line
+- ✅ **Preview mode** to review results before downloading
+- ✅ **Batch processing** for multiple files
 - ✅ **Clean JSON output** ready for use
+- ✅ **Detailed statistics** and progress reporting
 
 ## 🎯 Use Cases
 
-- **Video editing** - Sync images with subtitle timing
-- **Presentation creation** - Visual aids for spoken content
-- **Content creation** - Automated image selection
-- **Educational materials** - Visual learning aids
-- **Social media** - Subtitle-synced image posts
+- **Video editing** - Generate FCPXML timelines for Final Cut Pro
+- **Presentation creation** - Visual aids synchronized with spoken content
+- **Content creation** - Automated image selection for video projects
+- **Educational materials** - Visual learning aids with precise timing
+- **Social media** - Subtitle-synced image posts and stories
+- **Documentary production** - Quick visual research and asset gathering
+- **Podcast visualization** - Create visual timelines for audio content
 
 ## 🔍 Brave Search API Benefits
 
@@ -213,16 +249,22 @@ subber/
 
 ## 🛠️ Development
 
+### Project Architecture
+The project follows a modular architecture:
+- **`core/`** - Core processing logic (SRT parsing, text splitting, image downloading)
+- **`web/`** - Web application components (Flask routes, session management, FCPXML)
+- **`utils/`** - Utility functions (time conversion, statistics, file operations)
+
 ### Running Tests
 ```bash
-# TODO: Add tests
+# TODO: Add comprehensive tests
 pytest
 ```
 
 ### Code Formatting
 ```bash
-black *.py
-flake8 *.py
+black core/ web/ utils/ *.py
+flake8 core/ web/ utils/ *.py
 ```
 
 ## 📝 License
@@ -261,9 +303,11 @@ Open source - feel free to use, modify, and distribute.
 
 ### Getting Help
 
-- Check command line help: `python main.py --help`
-- View examples: `python main.py --examples`
-- Review Brave API docs: https://api-dashboard.search.brave.com/
+- **Web Interface**: Start with `python web_app.py` and open http://localhost:5000
+- **Command Line**: Check help with `python main.py --help`
+- **Examples**: View examples with `python main.py --examples`
+- **API Documentation**: https://api-dashboard.search.brave.com/
+- **Project Structure**: All modules are organized in `core/`, `web/`, and `utils/` folders
 
 ---
 
