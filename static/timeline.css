@@ -225,12 +225,17 @@ body {
 
 .export-panel {
     position: fixed;
-    bottom: 20px;
+    bottom: 220px;
     right: 20px;
     background: white;
     padding: 20px;
     border-radius: 12px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    transition: bottom 0.3s ease;
+}
+
+.export-panel.selection-collapsed {
+    bottom: 70px;
 }
 
 .btn-export {
@@ -369,4 +374,142 @@ body {
 
 .timeline-item:not(.editing) .keyword-editor {
     display: none;
+}
+
+/* Selection Panel Styles */
+.selection-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-top: 2px solid #e0e0e0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+    z-index: 1000;
+    max-height: 200px;
+    transition: all 0.3s ease;
+}
+
+.selection-panel.collapsed {
+    max-height: 50px;
+}
+
+.selection-header {
+    background: #f8f9fa;
+    padding: 10px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.selection-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #333;
+}
+
+.selection-count {
+    background: #2196f3;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.selection-toggle {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: #666;
+    padding: 4px;
+}
+
+.selection-content {
+    padding: 15px 20px;
+    overflow-y: auto;
+    max-height: 140px;
+}
+
+.selection-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 10px;
+}
+
+.selection-item {
+    position: relative;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.selection-item:hover {
+    border-color: #2196f3;
+    transform: translateY(-2px);
+}
+
+.selection-item img {
+    width: 100%;
+    height: 60px;
+    object-fit: cover;
+    display: block;
+}
+
+.selection-item .selection-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: rgba(244, 67, 54, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.selection-item:hover .selection-remove {
+    opacity: 1;
+}
+
+.selection-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.btn-clear-selection {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.btn-clear-selection:hover {
+    background: #d32f2f;
+}
+
+.selection-info {
+    color: #666;
+    font-size: 0.85rem;
+    flex: 1;
+    display: flex;
+    align-items: center;
 }

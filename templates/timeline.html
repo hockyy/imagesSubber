@@ -47,6 +47,30 @@
         <div id="exportStatus" class="status"></div>
     </div>
 
+    <!-- Selection Panel -->
+    <div class="selection-panel collapsed" id="selectionPanel">
+        <div class="selection-header" onclick="toggleSelectionPanel()">
+            <div>
+                <h3>📋 Selected Images</h3>
+                <span class="selection-count" id="selectionCount">0</span>
+            </div>
+            <button class="selection-toggle" id="selectionToggle">▲</button>
+        </div>
+        <div class="selection-content" id="selectionContent">
+            <div class="selection-grid" id="selectionGrid">
+                <!-- Selected images will appear here -->
+            </div>
+            <div class="selection-actions">
+                <button class="btn-clear-selection" onclick="clearAllSelections()">
+                    🗑️ Clear All
+                </button>
+                <div class="selection-info" id="selectionInfo">
+                    Select images from search results to build your collection
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Get session ID from URL
         const urlParams = new URLSearchParams(window.location.search);
@@ -62,6 +86,7 @@
         let selectedImages = {}; // {splitIndex: [imageIds]}
         let searchResultsCache = {}; // {splitIndex: [imageResults]} - Cache search results
         let customKeywords = {}; // {splitIndex: [custom_keywords]} - User-modified keywords for search
+        let persistentSelections = {}; // {splitIndex: [image_objects]} - Persistent selection collection
         
         // Load timeline data
         async function loadTimeline() {
@@ -242,10 +267,10 @@
                 </div>
             `;
             
-            // Restore previous selections if switching back to cached results
-            if (restoreSelections && selectedImages[splitIndex]) {
-                selectedImages[splitIndex].forEach(imageId => {
-                    const imageElement = document.querySelector(`[data-image-id="${imageId}"]`);
+            // Restore previous selections from persistent selections
+            if (persistentSelections[splitIndex]) {
+                persistentSelections[splitIndex].forEach(imageData => {
+                    const imageElement = document.querySelector(`[data-image-id="${imageData.id}"]`);
                     if (imageElement) {
                         imageElement.classList.add('selected');
                     }
@@ -255,38 +280,51 @@
         
         // Toggle image selection
         function toggleImageSelection(imageId, splitIndex) {
-            if (!selectedImages[splitIndex]) {
-                selectedImages[splitIndex] = [];
+            if (!persistentSelections[splitIndex]) {
+                persistentSelections[splitIndex] = [];
             }
             
             const imageElement = document.querySelector(`[data-image-id="${imageId}"]`);
-            const isSelected = selectedImages[splitIndex].includes(imageId);
+            
+            // Find the image data in current search results
+            const imageData = searchResultsCache[splitIndex]?.find(img => img.id === imageId);
+            if (!imageData) return;
+            
+            // Check if already in persistent selections
+            const existingIndex = persistentSelections[splitIndex].findIndex(img => img.id === imageId);
+            const isSelected = existingIndex !== -1;
             
             if (isSelected) {
-                selectedImages[splitIndex] = selectedImages[splitIndex].filter(id => id !== imageId);
+                // Remove from persistent selections
+                persistentSelections[splitIndex].splice(existingIndex, 1);
                 imageElement.classList.remove('selected');
             } else {
-                selectedImages[splitIndex].push(imageId);
+                // Add to persistent selections
+                persistentSelections[splitIndex].push(imageData);
                 imageElement.classList.add('selected');
             }
             
-            // Update server
-            updateImageSelection(splitIndex);
+            // Update selection panel
+            updateSelectionPanel();
+            
+            // Update server with persistent selections
+            updateImageSelectionFromPersistent(splitIndex);
             
             // Update timeline display
-            updateTimelineItemCount(splitIndex, selectedImages[splitIndex].length);
+            updateTimelineItemCount(splitIndex, persistentSelections[splitIndex].length);
         }
         
-        // Update image selection on server
-        async function updateImageSelection(splitIndex) {
+        // Update image selection on server from persistent selections
+        async function updateImageSelectionFromPersistent(splitIndex) {
             try {
+                const selectedIds = persistentSelections[splitIndex]?.map(img => img.id) || [];
                 await fetch(`/api/select/${sessionId}/${splitIndex}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        selected_image_ids: selectedImages[splitIndex] || []
+                        selected_image_ids: selectedIds
                     })
                 });
             } catch (error) {
@@ -315,7 +353,13 @@
                 status.textContent = 'Downloading images and creating timeline...';
                 
                 const response = await fetch(`/api/export/${sessionId}`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        persistent_selections: persistentSelections
+                    })
                 });
                 
                 const data = await response.json();
@@ -325,9 +369,10 @@
                     status.innerHTML = `
                         <strong>✅ Export Complete!</strong><br>
                         Downloaded ${data.images_downloaded} images<br>
-                        Timeline: <a href="/output/${data.timeline_file}" target="_blank">Download JSON</a><br>
-                        <strong>Download Folder:</strong> ./download/${data.download_directory}/<br>
-                        <a href="/download/${data.download_timeline_file}" target="_blank">Download Timeline JSON</a>
+                        <strong>Downloads:</strong><br>
+                        📄 <a href="/download/${data.download_timeline_file}" target="_blank">JSON Timeline</a><br>
+                        🎬 <a href="/download/${data.download_fcpxml_file}" target="_blank">FCPXML Timeline</a><br>
+                        <strong>Folder:</strong> ./download/${data.download_directory}/
                     `;
                 } else {
                     throw new Error(data.error || 'Export failed');
@@ -579,6 +624,106 @@
                     });
                 }, 50);
             }
+        });
+        
+        // Selection Panel Functions
+        function toggleSelectionPanel() {
+            const panel = document.getElementById('selectionPanel');
+            const toggle = document.getElementById('selectionToggle');
+            const exportPanel = document.querySelector('.export-panel');
+            
+            if (panel.classList.contains('collapsed')) {
+                panel.classList.remove('collapsed');
+                toggle.textContent = '▼';
+                exportPanel.classList.remove('selection-collapsed');
+            } else {
+                panel.classList.add('collapsed');
+                toggle.textContent = '▲';
+                exportPanel.classList.add('selection-collapsed');
+            }
+        }
+        
+        function updateSelectionPanel() {
+            const grid = document.getElementById('selectionGrid');
+            const count = document.getElementById('selectionCount');
+            const info = document.getElementById('selectionInfo');
+            
+            // Count total selected images across all splits
+            let totalCount = 0;
+            Object.values(persistentSelections).forEach(images => {
+                totalCount += images.length;
+            });
+            
+            count.textContent = totalCount;
+            
+            if (totalCount === 0) {
+                grid.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No images selected yet</div>';
+                info.textContent = 'Select images from search results to build your collection';
+                return;
+            }
+            
+            // Build grid of selected images
+            let gridHTML = '';
+            Object.keys(persistentSelections).forEach(splitIndex => {
+                const images = persistentSelections[splitIndex];
+                if (images.length > 0) {
+                    images.forEach(imageData => {
+                        gridHTML += `
+                            <div class="selection-item" title="Split ${splitIndex}: ${imageData.title || 'Untitled'}">
+                                <img src="${imageData.url}" alt="${imageData.title}" 
+                                     onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjZjVmNWY1Ii8+PHRleHQgeD0iNDAiIHk9IjM1IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+SW1hZ2U8L3RleHQ+PC9zdmc+'">
+                                <button class="selection-remove" onclick="removeFromSelection('${imageData.id}', ${splitIndex})">×</button>
+                            </div>
+                        `;
+                    });
+                }
+            });
+            
+            grid.innerHTML = gridHTML;
+            info.textContent = `${totalCount} images selected across ${Object.keys(persistentSelections).filter(k => persistentSelections[k].length > 0).length} splits`;
+        }
+        
+        function removeFromSelection(imageId, splitIndex) {
+            if (persistentSelections[splitIndex]) {
+                persistentSelections[splitIndex] = persistentSelections[splitIndex].filter(img => img.id !== imageId);
+                
+                // Update UI
+                updateSelectionPanel();
+                updateTimelineItemCount(splitIndex, persistentSelections[splitIndex].length);
+                
+                // Update current search results if visible
+                const imageElement = document.querySelector(`[data-image-id="${imageId}"]`);
+                if (imageElement) {
+                    imageElement.classList.remove('selected');
+                }
+                
+                // Update server
+                updateImageSelectionFromPersistent(splitIndex);
+            }
+        }
+        
+        function clearAllSelections() {
+            if (confirm('Are you sure you want to clear all selected images?')) {
+                persistentSelections = {};
+                updateSelectionPanel();
+                
+                // Update all timeline counts
+                Object.keys(timelineData.timeline).forEach(splitIndex => {
+                    updateTimelineItemCount(splitIndex, 0);
+                    updateImageSelectionFromPersistent(splitIndex);
+                });
+                
+                // Update current search results if visible
+                document.querySelectorAll('.image-item.selected').forEach(item => {
+                    item.classList.remove('selected');
+                });
+            }
+        }
+        
+        // Initialize selection panel as collapsed
+        document.addEventListener('DOMContentLoaded', function() {
+            const exportPanel = document.querySelector('.export-panel');
+            exportPanel.classList.add('selection-collapsed');
         });
         
         // Initialize

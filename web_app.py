@@ -17,6 +17,8 @@ from datetime import datetime
 from srt_parser import SRTParser
 from text_splitter import SmartTextSplitter
 from brave_image_client import BraveImageClient
+import urllib.parse
+from xml.sax.saxutils import escape
 
 app = Flask(__name__)
 app.secret_key = 'srt-timeline-generator-2024'
@@ -75,6 +77,239 @@ class TimelineSession:
             self.text_splits.extend(splits)
         
         return len(subtitle_entries), len(self.text_splits)
+
+def time_to_seconds(time_str):
+    """Convert HH:MM:SS,mmm or HH:MM:SS.mmm to seconds."""
+    time_str = time_str.replace(',', '.')
+    parts = time_str.split(':')
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    seconds_parts = parts[2].split('.')
+    seconds = int(seconds_parts[0])
+    milliseconds = int(seconds_parts[1]) if len(seconds_parts) > 1 else 0
+    
+    total_seconds = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000.0
+    return total_seconds
+
+def seconds_to_fcpxml_time(seconds):
+    """Convert seconds to FCPXML time format (rational number)."""
+    # FCPXML uses rational time: numerator/denominator
+    # Common timebase is 1001/30000s for 29.97fps or 1/25s for 25fps
+    # We'll use 1/1000s for millisecond precision
+    numerator = int(seconds * 1000)
+    return f"{numerator}/1000s"
+
+def seconds_to_frames(seconds, fps=24):
+    """Convert seconds to frames."""
+    return int(seconds * fps)
+
+def time_range_to_offset_duration(start_seconds, end_seconds, fps=24):
+    """Convert [start, end] time range to (offset_frames, duration_frames)."""
+    start_frames = seconds_to_frames(start_seconds, fps)
+    end_frames = seconds_to_frames(end_seconds, fps)
+    duration_frames = end_frames - start_frames
+    return start_frames, duration_frames
+
+def insert_video_clip(asset_id, clip_name, offset_frames, duration_frames):
+    """Generate FCPXML video clip element."""
+    return f'''
+                        <video ref="{asset_id}" start="0/1s" offset="{offset_frames}/24s" duration="{duration_frames}/24s" name="{escape(clip_name)}" enabled="1">
+                            <adjust-transform scale="1 1" position="0 0" anchor="0 0"/>
+                        </video>'''
+
+def insert_gap_clip(offset_frames, duration_frames):
+    """Generate FCPXML gap element."""
+    return f'''
+                        <gap start="0/1s" offset="{offset_frames}/24s" duration="{duration_frames}/24s" name="Gap"/>'''
+
+class TimelineClip:
+    """Represents a timeline clip with start/end times and image path."""
+    def __init__(self, start_seconds, end_seconds, image_path, asset_id):
+        self.start = start_seconds
+        self.end = end_seconds
+        self.image_path = image_path
+        self.asset_id = asset_id
+        self.clip_name = Path(image_path).stem
+    
+    def duration(self):
+        return self.end - self.start
+    
+    def start_frames(self, fps=24):
+        return seconds_to_frames(self.start, fps)
+    
+    def duration_frames(self, fps=24):
+        return seconds_to_frames(self.duration(), fps)
+    
+    def __repr__(self):
+        return f"TimelineClip({self.start:.2f}-{self.end:.2f}s, {self.clip_name})"
+
+def generate_fcpxml_timeline(timeline, video_title):
+    """Generate FCPXML content from timeline data matching the provided format."""
+    
+    # Calculate total duration in 24fps frames
+    total_duration = 0
+    if timeline:
+        last_entry = timeline[-1]
+        total_duration = time_to_seconds(last_entry['end'])
+    
+    total_duration_frames = int(total_duration * 24)  # Convert to 24fps frames
+    
+    # Start building FCPXML
+    fcpxml_content = '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.13">
+    <resources>
+        <format width="1920" id="r0" height="1080" name="FFVideoFormatRateUndefined" frameDuration="1/24s"/>'''
+    
+    # Add asset resources for each unique image
+    asset_counter = 1
+    image_assets = {}
+    
+    for entry in timeline:
+        for image_path in entry.get('image', []):
+            if image_path not in image_assets:
+                asset_id = f"r{asset_counter}"
+                image_name = Path(image_path).stem
+                
+                # Convert Windows path to proper file:// URL format
+                if image_path.startswith('C:'):
+                    file_url = f"file://localhost/{image_path.replace('\\', '/')}"
+                else:
+                    file_url = Path(image_path).as_uri()
+                
+                fcpxml_content += f'''
+        <asset start="0/1s" id="{asset_id}" duration="0/1s" name="{escape(image_name)}" hasVideo="1">
+            <media-rep src="{escape(file_url)}" kind="original-media"/>
+        </asset>'''
+                
+                image_assets[image_path] = asset_id
+                asset_counter += 1
+    
+    # Step 1: Precompute all clips, ignoring gaps
+    all_clips = []
+    
+    for entry in timeline:
+        start_seconds = time_to_seconds(entry['start'])
+        end_seconds = time_to_seconds(entry['end'])
+        images = entry.get('image', [])
+        
+        if images:
+            # Divide segment duration equally among images
+            segment_duration = end_seconds - start_seconds
+            image_duration = segment_duration / len(images)
+            
+            # Create clips for each image
+            for idx, image_path in enumerate(images):
+                asset_id = image_assets.get(image_path)
+                if asset_id:
+                    clip_start = start_seconds + (idx * image_duration)
+                    clip_end = clip_start + image_duration
+                    
+                    clip = TimelineClip(clip_start, clip_end, image_path, asset_id)
+                    all_clips.append(clip)
+    
+    # Step 2: Sort clips by start time
+    all_clips.sort(key=lambda clip: clip.end)
+    
+    # Step 3: Fix overlapping segments
+    for i in range(1, len(all_clips)):
+        if all_clips[i].start < all_clips[i-1].end:
+            # Clip overlaps with previous, adjust start time
+            all_clips[i].start = max(all_clips[i].start, all_clips[i-1].end)
+            
+            # If start >= end after adjustment, remove this clip
+            if all_clips[i].start >= all_clips[i].end:
+                all_clips[i] = None
+    
+    # Remove None clips (clips that were eliminated due to overlap)
+    all_clips = [clip for clip in all_clips if clip is not None]
+    
+    print(f"Generated {len(all_clips)} clips after overlap resolution:")
+    for clip in all_clips:
+        print(f"  {clip}")
+    
+    # Step 4: Generate FCPXML with clips and gaps
+    fcpxml_content += f'''
+    </resources>
+    <library>
+        <event name="{escape(video_title)}">
+            <project name="{escape(video_title)}">
+                <sequence tcStart="0/1s" duration="{total_duration_frames}/24s" format="r0" tcFormat="NDF">
+                    <spine>'''
+    
+    # Step 1: Convert all clips to frame-based representation
+    frame_clips = []
+    for clip in all_clips:
+        frame_clip = {
+            'start_frames': seconds_to_frames(clip.start),
+            'end_frames': seconds_to_frames(clip.end),
+            'asset_id': clip.asset_id,
+            'clip_name': clip.clip_name,
+            'image_path': clip.image_path
+        }
+        frame_clips.append(frame_clip)
+    
+    print(f"Converted to {len(frame_clips)} frame-based clips:")
+    for i, clip in enumerate(frame_clips):
+        print(f"  Clip {i}: {clip['start_frames']}-{clip['end_frames']} frames ({clip['clip_name']})")
+    
+    # Step 2: Process frame-based clips to handle small gaps
+    MIN_GAP_THRESHOLD_FRAMES = 12  # 0.5 seconds at 24fps
+    processed_frame_clips = []
+    
+    for i, clip in enumerate(frame_clips):
+        if i == 0:
+            # First clip, just add it
+            processed_frame_clips.append(clip)
+        else:
+            previous_clip = processed_frame_clips[-1]
+            gap_frames = clip['start_frames'] - previous_clip['end_frames'] + 1
+            
+            if gap_frames > 0 and gap_frames <= MIN_GAP_THRESHOLD_FRAMES:
+                # Small gap - extend previous clip to cover it
+                print(f"  Extending previous clip by {gap_frames} frames to cover small gap")
+                previous_clip['end_frames'] = clip['start_frames']
+                
+                # Add current clip
+                processed_frame_clips.append(clip)
+            else:
+                # Large gap or no gap - just add current clip
+                if gap_frames > 0:
+                    print(f"  Keeping gap of {gap_frames} frames ({gap_frames/24.0:.2f}s)")
+                processed_frame_clips.append(clip)
+    
+    print(f"After gap processing: {len(processed_frame_clips)} frame clips:")
+    for i, clip in enumerate(processed_frame_clips):
+        print(f"  Clip {i}: {clip['start_frames']}-{clip['end_frames']} frames ({clip['clip_name']})")
+    
+    # Step 3: Generate FCPXML from processed frame clips
+    current_timeline_position = 0
+    
+    for i, clip in enumerate(processed_frame_clips):
+        # Add gap if needed
+        if clip['start_frames'] > current_timeline_position:
+            gap_duration_frames = clip['start_frames'] - current_timeline_position
+            print(f"  Adding gap: {gap_duration_frames} frames ({gap_duration_frames/24.0:.2f}s)")
+            fcpxml_content += insert_gap_clip(current_timeline_position, gap_duration_frames)
+            current_timeline_position += gap_duration_frames
+        duration_frames = clip['end_frames'] - clip['start_frames'] + 1
+        # Add the video clip
+        fcpxml_content += insert_video_clip(
+            clip['asset_id'], clip['clip_name'], current_timeline_position, duration_frames
+        )
+        current_timeline_position += duration_frames
+    
+    fcpxml_content += '''
+                    </spine>
+                </sequence>
+            </project>
+        </event>
+    </library>
+</fcpxml>'''
+    
+    return fcpxml_content
+
+
 
 @app.route('/')
 def index():
@@ -257,6 +492,9 @@ def export_timeline(session_id):
     session = sessions[session_id]
     
     try:
+        # Get persistent selections from frontend
+        data = request.get_json() if request.is_json else {}
+        persistent_selections = data.get('persistent_selections', {})
         # Create both output and download directories
         session_output_dir = Path(OUTPUT_FOLDER) / session_id / session.video_title
         session_download_dir = Path(DOWNLOAD_FOLDER) / session.video_title
@@ -267,7 +505,12 @@ def export_timeline(session_id):
         downloaded_images = []
         
         for i, split in enumerate(session.text_splits):
-            selected_imgs = session.selected_images.get(i, [])
+            # Use persistent selections if provided, otherwise fall back to session.selected_images
+            selected_imgs = []
+            if str(i) in persistent_selections:
+                selected_imgs = persistent_selections[str(i)]
+            else:
+                selected_imgs = session.selected_images.get(i, [])
             
             # Download images and create file paths
             image_paths = []
@@ -299,8 +542,9 @@ def export_timeline(session_id):
                         download_success = True
                 
                 if download_success:
-                    relative_path = f"./{session.video_title}/{filename}"
-                    image_paths.append(relative_path)
+                    # Use absolute path for JSON
+                    absolute_path = str(download_file_path.resolve())
+                    image_paths.append(absolute_path)
                     downloaded_images.append(filename)
                     print(f"Downloaded: {filename} -> {download_file_path}")
                 else:
@@ -324,9 +568,21 @@ def export_timeline(session_id):
         with open(download_timeline_file, 'w', encoding='utf-8') as f:
             json.dump(timeline, f, indent=2, ensure_ascii=False)
         
+        # Generate FCPXML timeline
+        fcpxml_content = generate_fcpxml_timeline(timeline, session.video_title)
+        fcpxml_file = session_output_dir.parent / f"{session.video_title}_timeline.fcpxml"
+        download_fcpxml_file = Path(DOWNLOAD_FOLDER) / f"{session.video_title}_timeline.fcpxml"
+        
+        with open(fcpxml_file, 'w', encoding='utf-8') as f:
+            f.write(fcpxml_content)
+        
+        with open(download_fcpxml_file, 'w', encoding='utf-8') as f:
+            f.write(fcpxml_content)
         return jsonify({
             'timeline_file': str(timeline_file.relative_to(OUTPUT_FOLDER)),
             'download_timeline_file': str(download_timeline_file.relative_to(DOWNLOAD_FOLDER)),
+            'fcpxml_file': str(fcpxml_file.relative_to(OUTPUT_FOLDER)),
+            'download_fcpxml_file': str(download_fcpxml_file.relative_to(DOWNLOAD_FOLDER)),
             'images_downloaded': len(downloaded_images),
             'total_entries': len(timeline),
             'output_directory': str(session_output_dir.relative_to(OUTPUT_FOLDER)),

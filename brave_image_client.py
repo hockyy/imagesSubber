@@ -65,7 +65,6 @@ class BraveImageClient:
             params = {
                 'q': query,                        # Required: search query (max 400 chars, 50 words)
                 'count': min(count, 50),          # Optional: max 200 (default 50)
-                'country': 'US',                   # Optional: 2-char country code (default US)
                 'search_lang': 'en',               # Optional: language code (default en)  
                 'safesearch': 'off',            # Optional: off/strict (default strict)
                 'spellcheck': True                 # Optional: boolean (default true)
